@@ -22,7 +22,7 @@
         "trim_db": 60,          // threshold for timming silence. Set this according to your dataset.
 
         // Griffin-Lim
-        "power": 1,           // value to sharpen wav signals after GL algorithm.
+        "power": 1.0,           // value to sharpen wav signals after GL algorithm.
         "griffin_lim_iters": 60,// #griffin-lim iterations. 30-60 is a good range. Larger the value, slower the generation.
 
         // MelSpectrogram parameters

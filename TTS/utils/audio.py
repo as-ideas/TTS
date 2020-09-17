@@ -8,6 +8,10 @@ import pyworld as pw
 from TTS.tts.utils.data import StandardScaler
 
 #pylint: disable=too-many-public-methods
+from TTS.utils.io import load_config
+from TTS.vocoder.datasets.preprocess import load_wav_data
+
+
 class AudioProcessor(object):
     def __init__(self,
                  sample_rate=None,
@@ -96,186 +100,43 @@ class AudioProcessor(object):
             fmin=self.mel_fmin,
             fmax=self.mel_fmax)
 
-    def _stft_parameters(self, ):
-        """Compute necessary stft parameters with given time values"""
-        factor = self.frame_length_ms / self.frame_shift_ms
-        assert (factor).is_integer(), " [!] frame_shift_ms should divide frame_length_ms"
-        hop_length = int(self.frame_shift_ms / 1000.0 * self.sample_rate)
-        win_length = int(hop_length * factor)
-        return hop_length, win_length
+    def normalize(self, S):
+        S = np.clip(S, a_min=1.e-5, a_max=None)
+        return np.log(S)
 
-    ### normalization ###
-    def _normalize(self, S):
-        """Put values in [0, self.max_norm] or [-self.max_norm, self.max_norm]"""
-        #pylint: disable=no-else-return
-        S = S.copy()
-        if self.signal_norm:
-            # mean-var scaling
-            if hasattr(self, 'mel_scaler'):
-                if S.shape[0] == self.num_mels:
-                    return self.mel_scaler.transform(S.T).T
-                elif S.shape[0] == self.fft_size / 2:
-                    return self.linear_scaler.transform(S.T).T
-                else:
-                    raise RuntimeError(' [!] Mean-Var stats does not match the given feature dimensions.')
-            # range normalization
-            S -= self.ref_level_db  # discard certain range of DB assuming it is air noise
-            S_norm = ((S - self.min_level_db) / (-self.min_level_db))
-            if self.symmetric_norm:
-                S_norm = ((2 * self.max_norm) * S_norm) - self.max_norm
-                if self.clip_norm:
-                    S_norm = np.clip(S_norm, -self.max_norm, self.max_norm)  # pylint: disable=invalid-unary-operand-type
-                return S_norm
-            else:
-                S_norm = self.max_norm * S_norm
-                if self.clip_norm:
-                    S_norm = np.clip(S_norm, 0, self.max_norm)
-                return S_norm
-        else:
-            return S
-
-    def _denormalize(self, S):
-        """denormalize values"""
-        #pylint: disable=no-else-return
-        S_denorm = S.copy()
-        if self.signal_norm:
-            # mean-var scaling
-            if hasattr(self, 'mel_scaler'):
-                if S_denorm.shape[0] == self.num_mels:
-                    return self.mel_scaler.inverse_transform(S_denorm.T).T
-                elif S_denorm.shape[0] == self.fft_size / 2:
-                    return self.linear_scaler.inverse_transform(S_denorm.T).T
-                else:
-                    raise RuntimeError(' [!] Mean-Var stats does not match the given feature dimensions.')
-            if self.symmetric_norm:
-                if self.clip_norm:
-                    S_denorm = np.clip(S_denorm, -self.max_norm, self.max_norm)  #pylint: disable=invalid-unary-operand-type
-                S_denorm = ((S_denorm + self.max_norm) * -self.min_level_db / (2 * self.max_norm)) + self.min_level_db
-                return S_denorm + self.ref_level_db
-            else:
-                if self.clip_norm:
-                    S_denorm = np.clip(S_denorm, 0, self.max_norm)
-                S_denorm = (S_denorm * -self.min_level_db /
-                            self.max_norm) + self.min_level_db
-                return S_denorm + self.ref_level_db
-        else:
-            return S_denorm
-
-    ### Mean-STD scaling ###
-    def load_stats(self, stats_path):
-        stats = np.load(stats_path, allow_pickle=True).item()  #pylint: disable=unexpected-keyword-arg
-        mel_mean = stats['mel_mean']
-        mel_std = stats['mel_std']
-        linear_mean = stats['linear_mean']
-        linear_std = stats['linear_std']
-        stats_config = stats['audio_config']
-        # check all audio parameters used for computing stats
-        skip_parameters = ['griffin_lim_iters', 'stats_path', 'do_trim_silence', 'ref_level_db', 'power']
-        for key in stats_config.keys():
-            if key in skip_parameters:
-                continue
-            assert stats_config[key] == self.__dict__[key],\
-                f" [!] Audio param {key} does not match the value used for computing mean-var stats. {stats_config[key]} vs {self.__dict__[key]}"
-        return mel_mean, mel_std, linear_mean, linear_std, stats_config
-
-    # pylint: disable=attribute-defined-outside-init
-    def setup_scaler(self, mel_mean, mel_std, linear_mean, linear_std):
-        self.mel_scaler = StandardScaler()
-        self.mel_scaler.set_stats(mel_mean, mel_std)
-        self.linear_scaler = StandardScaler()
-        self.linear_scaler.set_stats(linear_mean, linear_std)
-
-    ### DB and AMP conversion ###
-    # pylint: disable=no-self-use
-    def _amp_to_db(self, x):
-        return self.spec_gain * np.log10(np.maximum(1e-5, x))
-
-    # pylint: disable=no-self-use
-    def _db_to_amp(self, x):
-        return np.power(10.0, x / self.spec_gain)
-
-    ### Preemphasis ###
-    def apply_preemphasis(self, x):
-        if self.preemphasis == 0:
-            raise RuntimeError(" [!] Preemphasis is set 0.0.")
-        return scipy.signal.lfilter([1, -self.preemphasis], [1], x)
-
-    def apply_inv_preemphasis(self, x):
-        if self.preemphasis == 0:
-            raise RuntimeError(" [!] Preemphasis is set 0.0.")
-        return scipy.signal.lfilter([1], [1, -self.preemphasis], x)
-
-    ### SPECTROGRAMs ###
-    def _linear_to_mel(self, spectrogram):
-        return np.dot(self.mel_basis, spectrogram)
-
-    def _mel_to_linear(self, mel_spec):
-        return np.maximum(1e-10, np.dot(self.inv_mel_basis, mel_spec))
-
-    def spectrogram(self, y):
-        if self.preemphasis != 0:
-            D = self._stft(self.apply_preemphasis(y))
-        else:
-            D = self._stft(y)
-        S = self._amp_to_db(np.abs(D))
-        return self._normalize(S)
+    def denormalize(self, S):
+        return np.exp(S)
 
     def melspectrogram(self, y):
-        if self.preemphasis != 0:
-            D = self._stft(self.apply_preemphasis(y))
-        else:
-            D = self._stft(y)
-        S = self._amp_to_db(self._linear_to_mel(np.abs(D)))
-        return self._normalize(S)
+        D = self.stft(y)
+        S = self.linear_to_mel(np.abs(D))
+        return self.normalize(S)
 
-    def inv_spectrogram(self, spectrogram):
-        """Converts spectrogram to waveform using librosa"""
-        S = self._denormalize(spectrogram)
-        S = self._db_to_amp(S)
-        # Reconstruct phase
-        if self.preemphasis != 0:
-            return self.apply_inv_preemphasis(self._griffin_lim(S**self.power))
-        return self._griffin_lim(S**self.power)
+    def inv_melspectrogram(self, mel, n_iter=32):
+        """Uses Griffin-Lim phase reconstruction to convert from a normalized
+        mel spectrogram back into a waveform."""
+        denormalized = self.denormalize(mel)
+        S = librosa.feature.inverse.mel_to_stft(
+            denormalized, power=1, sr=self.sample_rate,
+            n_fft=self.fft_size, fmin=self.mel_fmin, fmax=self.mel_fmax)
+        wav = librosa.core.griffinlim(
+            S, n_iter=n_iter,
+            hop_length=self.hop_length, win_length=self.win_length)
+        return wav
 
-    def inv_melspectrogram(self, mel_spectrogram):
-        '''Converts melspectrogram to waveform using librosa'''
-        D = self._denormalize(mel_spectrogram)
-        S = self._db_to_amp(D)
-        S = self._mel_to_linear(S)  # Convert back to linear
-        if self.preemphasis != 0:
-            return self.apply_inv_preemphasis(self._griffin_lim(S**self.power))
-        return self._griffin_lim(S**self.power)
+    def raw_melspec(self, y):
+        D = self.stft(y)
+        S = self.linear_to_mel(np.abs(D))
+        return S
 
-    def out_linear_to_mel(self, linear_spec):
-        S = self._denormalize(linear_spec)
-        S = self._db_to_amp(S)
-        S = self._linear_to_mel(np.abs(S))
-        S = self._amp_to_db(S)
-        mel = self._normalize(S)
-        return mel
-
-    ### STFT and ISTFT ###
-    def _stft(self, y):
+    def stft(self, y):
         return librosa.stft(
             y=y,
-            n_fft=self.fft_size,
-            hop_length=self.hop_length,
-            win_length=self.win_length,
-            pad_mode=self.stft_pad_mode,
-        )
+            n_fft=self.fft_size, hop_length=self.hop_length, win_length=self.win_length)
 
-    def _istft(self, y):
-        return librosa.istft(
-            y, hop_length=self.hop_length, win_length=self.win_length)
-
-    def _griffin_lim(self, S):
-        angles = np.exp(2j * np.pi * np.random.rand(*S.shape))
-        S_complex = np.abs(S).astype(np.complex)
-        y = self._istft(S_complex * angles)
-        for _ in range(self.griffin_lim_iters):
-            angles = np.exp(1j * np.angle(self._stft(y)))
-            y = self._istft(S_complex * angles)
-        return y
+    def linear_to_mel(self, spectrogram):
+        return librosa.feature.melspectrogram(
+            S=spectrogram, sr=self.sample_rate, n_fft=self.fft_size, n_mels=self.num_mels, fmin=self.mel_fmin, fmax=self.mel_fmax)
 
     def compute_stft_paddings(self, x, pad_sides=1):
         '''compute right padding (final frame) or both sides padding (first and final frames)
@@ -367,5 +228,16 @@ class AudioProcessor(object):
     def dequantize(x, bits):
         return 2 * x / (2**bits - 1) - 1
 
+
+import torch
 if __name__ == '__main__':
     print('hallo')
+    cfg = load_config('/Users/cschaefe/workspace/MozillaTTS/TTS/tts/configs/config.json')
+    ap = AudioProcessor(**cfg.audio)
+    wav = ap.load_wav('/Users/cschaefe/datasets/audio_data/Cutted_merged_resampled/01452.wav')
+    mel = ap.melspectrogram(wav)
+    wav_r = ap.inv_melspectrogram(mel)
+    print(f'mel shape {mel.shape}')
+    mel_torch = torch.tensor(mel).float().unsqueeze(0)
+    torch.save(mel_torch, '/tmp/mozilla/sample.mel')
+    ap.save_wav(wav_r, '/tmp/mozilla/sample.wav')

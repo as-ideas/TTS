@@ -1,12 +1,12 @@
 {
     "model": "Tacotron2",
-    "run_name": "ljspeech-ddc-bn",
+    "run_name": "asvoice",
     "run_description": "tacotron2 with ddc and batch-normalization",
 
     // AUDIO PARAMETERS
     "audio":{
         // stft parameters
-        "fft_size": 1024,         // number of stft frequency levels. Size of the linear spectogram frame.
+        "fft_size": 2048,         // number of stft frequency levels. Size of the linear spectogram frame.
         "win_length": 1024,      // stft window length in ms.
         "hop_length": 256,       // stft window hop-lengh in ms.
         "frame_length_ms": null, // stft window length in ms.If null, 'win_length' is used.
@@ -22,7 +22,7 @@
         "trim_db": 60,          // threshold for timming silence. Set this according to your dataset.
 
         // Griffin-Lim
-        "power": 1.5,           // value to sharpen wav signals after GL algorithm.
+        "power": 1,           // value to sharpen wav signals after GL algorithm.
         "griffin_lim_iters": 60,// #griffin-lim iterations. 30-60 is a good range. Larger the value, slower the generation.
 
         // MelSpectrogram parameters
@@ -128,7 +128,7 @@
     // PHONEMES
     "phoneme_cache_path": "../../Mozilla-TTS/vctk-test/",  // phoneme computation is slow, therefore, it caches results in the given folder.
     "use_phonemes": true,           // use phonemes instead of raw characters. It is suggested for better pronounciation.
-    "phoneme_language": "en-us",     // depending on your target language, pick one from  https://github.com/bootphon/phonemizer#languages
+    "phoneme_language": "de",     // depending on your target language, pick one from  https://github.com/bootphon/phonemizer#languages
 
     // MULTI-SPEAKER and GST
     "use_speaker_embedding": true,      // use speaker embedding to enable multi-speaker learning.
@@ -149,10 +149,10 @@
     "datasets":   // List of datasets. They all merged and they get different speaker_ids.
         [
             {
-                "name": "vctk",
-                "path": "../../../datasets/VCTK-Corpus-removed-silence/",
-                "meta_file_train": ["p225", "p234", "p238", "p245", "p248", "p261", "p294", "p302", "p326", "p335", "p347"], // for vtck if list, ignore speakers id in list for train, its useful for test cloning with new speakers
-                "meta_file_val": null
+                "name": "ljspeech",
+                "path": "/Users/cschaefe/datasets/audio_data/Cutted_merged_mozilla",
+                "meta_file_train": "/Users/cschaefe/datasets/audio_data/Cutted_merged_mozilla/metadata_train.csv", // for vtck if list, ignore speakers id in list for train, its useful for test cloning with new speakers
+                "meta_file_val": "/Users/cschaefe/datasets/audio_data/Cutted_merged_mozilla/metadata_val.csv"
             }
         ]
 }

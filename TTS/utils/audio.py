@@ -366,3 +366,6 @@ class AudioProcessor(object):
     @staticmethod
     def dequantize(x, bits):
         return 2 * x / (2**bits - 1) - 1
+
+if __name__ == '__main__':
+    print('hallo')

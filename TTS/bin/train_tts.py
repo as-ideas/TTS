@@ -615,12 +615,13 @@ def main(args):  # pylint: disable=redefined-outer-name
         train_avg_loss_dict, global_step = train(model, criterion, optimizer,
                                                  optimizer_st, scheduler, ap,
                                                  global_step, epoch, amp, speaker_mapping)
-        eval_avg_loss_dict = evaluate(model, criterion, ap, global_step, epoch, speaker_mapping)
-        c_logger.print_epoch_end(epoch, eval_avg_loss_dict)
-        target_loss = train_avg_loss_dict['avg_postnet_loss']
-        if c.run_eval:
-            target_loss = eval_avg_loss_dict['avg_postnet_loss']
-        best_loss = save_best_model(target_loss, best_loss, model, optimizer, global_step, epoch, c.r,
+        if epoch % 10 == 0:
+            eval_avg_loss_dict = evaluate(model, criterion, ap, global_step, epoch, speaker_mapping)
+            c_logger.print_epoch_end(epoch, eval_avg_loss_dict)
+            target_loss = train_avg_loss_dict['avg_postnet_loss']
+            if c.run_eval:
+                target_loss = eval_avg_loss_dict['avg_postnet_loss']
+            best_loss = save_best_model(target_loss, best_loss, model, optimizer, global_step, epoch, c.r,
                                     OUT_PATH, amp_state_dict=amp.state_dict() if amp else None)
 
 

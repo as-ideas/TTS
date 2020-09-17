@@ -181,10 +181,7 @@ class AudioProcessor(object):
 
     ### save and load ###
     def load_wav(self, filename, sr=None):
-        if sr is None:
-            x, sr = sf.read(filename)
-        else:
-            x, sr = librosa.load(filename, sr=sr)
+        x, sr = librosa.load(filename, sr=None)
         if self.do_trim_silence:
             try:
                 x = self.trim_silence(x)

@@ -34,8 +34,8 @@ def plot_spectrogram(spectrogram, ap=None, fig_size=(16, 10), output_fig=False):
         spectrogram_ = spectrogram.detach().cpu().numpy().squeeze().T
     else:
         spectrogram_ = spectrogram.T
-    if ap is not None:
-        spectrogram_ = ap.denormalize(spectrogram_)  # pylint: disable=protected-access
+    #if ap is not None:
+    #    spectrogram_ = ap.denormalize(spectrogram_)  # pylint: disable=protected-access
     fig = plt.figure(figsize=fig_size)
     plt.imshow(spectrogram_, aspect="auto", origin="lower")
     plt.colorbar()

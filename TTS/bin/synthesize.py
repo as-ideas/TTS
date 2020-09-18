@@ -7,7 +7,7 @@ import json
 import os
 import string
 import time
-
+import numpy as np
 import torch
 
 from TTS.tts.utils.generic_utils import setup_model
@@ -18,9 +18,20 @@ from TTS.utils.io import load_config
 from TTS.vocoder.utils.generic_utils import setup_generator
 
 
+def get_melgan_mel(mel, ap, out_path='/tmp/mozilla/sample.mel'):
+    D = ap._denormalize(mel)
+    S = ap._db_to_amp(D)
+    S = np.clip(S, a_min=1.e-5, a_max=None)
+    mel = np.log(S)
+    mel = torch.tensor(mel).unsqueeze(0)
+    return mel
+
 def tts(model, vocoder_model, text, CONFIG, use_cuda, ap, use_gl, speaker_fileid, speaker_embedding=None, gst_style=None):
     t_1 = time.time()
     waveform, _, _, mel_postnet_spec, _, _ = synthesis(model, text, CONFIG, use_cuda, ap, speaker_fileid, gst_style, False, CONFIG.enable_eos_bos_chars, use_gl, speaker_embedding=speaker_embedding)
+
+    melgan_mel = get_melgan_mel(mel_postnet_spec.T, ap)
+
     if CONFIG.model == "Tacotron" and not use_gl:
         mel_postnet_spec = ap.out_linear_to_mel(mel_postnet_spec.T).T
     if not use_gl:
@@ -35,7 +46,7 @@ def tts(model, vocoder_model, text, CONFIG, use_cuda, ap, use_gl, speaker_fileid
     print(" > Run-time: {}".format(time.time() - t_1))
     print(" > Real-time factor: {}".format(rtf))
     print(" > Time per step: {}".format(tps))
-    return waveform
+    return waveform, melgan_mel
 
 
 if __name__ == "__main__":
@@ -144,13 +155,6 @@ if __name__ == "__main__":
     use_griffin_lim = args.vocoder_path == ""
     print(" > Text: {}".format(args.text))
 
-    if not C.use_external_speaker_embedding_file:
-        if args.speaker_fileid.isdigit():
-            args.speaker_fileid = int(args.speaker_fileid)
-        else:
-            args.speaker_fileid = None
-    else:
-        args.speaker_fileid = None
 
     if args.gst_style is None:
         gst_style = C.gst['gst_style_input']
@@ -163,7 +167,7 @@ if __name__ == "__main__":
         except ValueError:
             gst_style = args.gst_style
 
-    wav = tts(model, vocoder_model, args.text, C, args.use_cuda, ap, use_griffin_lim, args.speaker_fileid, speaker_embedding=speaker_embedding, gst_style=gst_style)
+    wav, melgan_mel = tts(model, vocoder_model, args.text, C, args.use_cuda, ap, use_griffin_lim, args.speaker_fileid, speaker_embedding=speaker_embedding, gst_style=gst_style)
 
     # save the results
     file_name = args.text.replace(" ", "_")
@@ -172,3 +176,6 @@ if __name__ == "__main__":
     out_path = os.path.join(args.out_path, file_name)
     print(" > Saving output to {}".format(out_path))
     ap.save_wav(wav, out_path)
+    out_path_mel = out_path.replace('.wav', '.mel')
+    torch.save(melgan_mel, out_path_mel)
+    print(" > Saving mel to {}".format(out_path_mel))

@@ -8,6 +8,9 @@ import pyworld as pw
 from TTS.tts.utils.data import StandardScaler
 
 #pylint: disable=too-many-public-methods
+from TTS.utils.io import load_config
+
+
 class AudioProcessor(object):
     def __init__(self,
                  sample_rate=None,
@@ -366,3 +369,20 @@ class AudioProcessor(object):
     @staticmethod
     def dequantize(x, bits):
         return 2 * x / (2**bits - 1) - 1
+
+
+import torch
+if __name__ == '__main__':
+    cfg = load_config('/Users/cschaefe/workspace/MozillaTTS/TTS/tts/configs/config.json')
+    ap = AudioProcessor(**cfg.audio)
+    wav = ap.load_wav('/Users/cschaefe/datasets/audio_data/Cutted_merged_resampled/01452.wav')
+    mel = ap.melspectrogram(wav)
+    wav_r = ap.inv_melspectrogram(mel)
+    ap.save_wav(wav_r, '/tmp/mozilla/sample.wav')
+
+    D = ap._denormalize(mel)
+    S = ap._db_to_amp(D)
+    S = np.clip(S, a_min=1.e-5, a_max=None)
+    mel = np.log(S)
+    mel_torch = torch.tensor(mel).unsqueeze(0)
+    torch.save(mel_torch.float(), '/tmp/mozilla/sample.mel')
